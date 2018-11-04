@@ -69,14 +69,14 @@ y = np.reshape(y, (-1, 200))
 
 if not os.path.exists('lstm'):
     model = Sequential()
-    model.add(LSTM(512, dropout=0.2, input_shape=(seq_length, 200), return_sequences=True))
-    model.add(LSTM(512, return_sequences=False))
+    model.add(LSTM(512, dropout=0.2, input_shape=(seq_length, 200), return_sequences=False))
+    # model.add(LSTM(512, return_sequences=False))
     model.add(Dropout(0.2))
-    model.add(Dense(200, activation="softmax"))
+    model.add(Dense(200, activation="sigmoid"))
     model.compile(loss="mse", optimizer="Adam")
 
     # 跑模型
-    model.fit(x, y, epochs=150, batch_size=4096)
+    model.fit(x, y, epochs=50, batch_size=4096)
     model.save('lstm')
 else:
     import keras
