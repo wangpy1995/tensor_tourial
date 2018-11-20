@@ -19,7 +19,7 @@ special_workday = ['2018-02-%d' % d for d in [11, 24]] + \
 
 def convert_loc_to_geo(lat, lon, geo_dic):
     # 损失部分精度，以geohash值作为类别
-    code = Geohash.encode(lat, lon, 12)
+    code = Geohash.encode(lat, lon, 6)
     # 保存经纬度，用于计算该分类下的中位数
     if geo_dic.get(code) is None:
         geo_dic[code] = [(lat, lon)]
@@ -61,7 +61,62 @@ def data_convert(data, geo_dic, is_train_data=True):
     return data
 
 
-df = pd.read_csv('train_new.csv')
-geo_dic = dict()
-df = data_convert(df, geo_dic, True)
-df.to_csv('train_new_1.csv')
+def convert_to_lable(train, test):
+    from sklearn.cluster import DBSCAN
+    trL = train.shape[0] * 2
+    X = np.concatenate([train[['start_lat', 'start_lon']].values,
+                        train[['end_lat', 'end_lon']].values,
+                        test[['start_lat', 'start_lon']].values])
+    db = DBSCAN(eps=5e-4, min_samples=3, p=1, leaf_size=10, n_jobs=-1).fit(X)
+    labels = db.labels_
+    n_clusters_ = len(set(labels))
+    print('Estimated number of clusters: %d' % n_clusters_)
+
+    info = pd.DataFrame(X[:trL, :], columns=['lat', 'lon'])
+    info['block_id'] = labels[:trL]
+    clear_info = info.loc[info.block_id != -1, :]
+    print('The number of miss start block in train data', (info.block_id.iloc[:trL // 2] == -1).sum())
+    print('The number of miss end block in train data', (info.block_id.iloc[trL // 2:] == -1).sum())
+    # 测试集聚类label
+    test_info = pd.DataFrame(X[trL:, :], columns=['lat', 'lon'])
+    test_info['block_id'] = labels[trL:]
+    print('The number of miss start block in test data', (test_info.block_id == -1).sum())
+    train['start_block'] = info.block_id.iloc[:trL // 2].values
+    train['end_block'] = info.block_id.iloc[trL // 2:].values
+    test['start_block'] = test_info.block_id.values
+    good_train_idx = (train.start_block != -1) & (train.end_block != -1)
+    print('The number of good training data', good_train_idx.sum())
+    good_train = train.loc[good_train_idx, :]
+    print('saving new train & test data')
+    good_train.to_csv('good_train.csv', index=None)
+    test.to_csv('good_test.csv', index=None)
+
+
+# train = pd.read_csv('train_new.csv')
+# geo_dic = dict()
+# train = data_convert(train, geo_dic, True)
+# train.to_csv('train_new_1.csv')
+#
+# test = pd.read_csv('test_new.csv')
+# test = data_convert(test, None, False)
+# test.to_csv('test_new_1.csv')
+# with open('geo_dic.txt', 'w')as f:
+#     f.writelines(str(geo_dic))
+
+
+# train = pd.read_csv('train_new.csv', low_memory=False)
+# test = train[train['start_time'] > '2018-07-01 00:00:00']
+# train = train[train['start_time'] <= '2018-07-01 00:00:00']
+# convert_to_lable(train, test)
+
+from sklearn.naive_bayes import MultinomialNB
+
+# df = pd.read_csv('good_train.csv', low_memory=False)
+# df = data_convert(df, dict())
+# df.to_csv('good_train_new.csv')
+df = pd.read_csv('good_train_new.csv', low_memory=False)
+clf = MultinomialNB()
+X = df[['week_day', 'hour', 'is_holiday', 'start_block']]
+y = df['end_block']
+clf.partial_fit(X, y)
+print(clf.class_log_prior_)
