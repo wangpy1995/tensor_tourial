@@ -3,6 +3,7 @@ import Geohash
 import datetime
 import pandas as pd
 import numpy as np
+import collections
 
 # 节假日
 special_holiday = ['2018-01-01'] + ['2018-02-%d' % d for d in range(15, 22)] + \
@@ -47,17 +48,52 @@ def data_convert(data, geo_dic, is_train_data=True):
     data['is_holiday'] = is_holiday
 
     # 经纬度转geohash
+    # 保存geohash下的中位数
+    hash_lists = dict()
     start_tmp = data[['start_lat', 'start_lon']]
     start_geohash = []
-    for stat_loc in start_tmp.values:
-        start_geohash.append(convert_loc_to_geo(float(stat_loc[0]), float(stat_loc[1]), dict()))
+    for start_loc in start_tmp.values:
+        hash_str = convert_loc_to_geo(float(start_loc[0]), float(start_loc[1]), dict())
+        start_geohash.append(hash_str)
+        hash_list = hash_lists.get(hash_str, [])
+        hash_list.append([start_loc[0], start_loc[1]])
     data['start_geohash'] = start_geohash
+
     end_tmp = data[['end_lat', 'end_lon']]
+    end_geohash = []
     if is_train_data:
-        end_geohash = []
         for end_loc in end_tmp.values:
-            end_geohash.append(convert_loc_to_geo(float(end_loc[0]), float(end_loc[1]), geo_dic))
+            hash_str = convert_loc_to_geo(float(end_loc[0]), float(end_loc[1]), geo_dic)
+            end_geohash.append(hash_str)
+            hash_list = hash_lists.get(hash_str, [])
+            hash_list.append([end_loc[0], end_loc[1]])
         data['end_geohash'] = end_geohash
+
+    medians = dict()
+    for key in hash_lists.keys():
+        lst = hash_lists[key]
+        median_lat = np.array(lst)[:, 0]
+        median_lon = np.array(lst)[:, 1]
+        medians[key] = str(median_lat) + ',' + str(median_lon)
+    pd.DataFrame(hash_lists).to_csv('medians.csv')
+
+    count = collections.Counter(start_geohash + end_geohash).most_common()
+    # geohash转编号
+    dictionary = dict()
+    for item, _ in count:
+        dictionary[item] = len(dictionary)
+
+    start_classifications = []
+    for s in start_geohash:
+        start_classifications.append(dictionary[s])
+    data['start_classifications'] = start_classifications
+
+    end_classifications = []
+    if is_train_data:
+        for e in end_geohash:
+            end_classifications.append(dictionary[e])
+        data['end_classification'] = end_classifications
+
     return data
 
 
@@ -97,6 +133,7 @@ def convert_to_lable(train, test):
 # train = data_convert(train, geo_dic, True)
 # train.to_csv('train_new_1.csv')
 #
+
 # test = pd.read_csv('test_new.csv')
 # test = data_convert(test, None, False)
 # test.to_csv('test_new_1.csv')
@@ -116,7 +153,7 @@ from sklearn.naive_bayes import MultinomialNB
 # df.to_csv('good_train_new.csv')
 df = pd.read_csv('good_train_new.csv', low_memory=False)
 clf = MultinomialNB()
-X = df[['week_day', 'hour', 'is_holiday', 'start_block']]
+X = df[['week_day', 'hour', 'is_holiday', 'start_classifications']]
 y = df['end_block']
-clf.partial_fit(X, y)
+clf.fit(X, y)
 print(clf.class_log_prior_)
